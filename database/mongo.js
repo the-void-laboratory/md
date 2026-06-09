@@ -165,9 +165,13 @@ async function getSessionDoc(sessionId) {
 async function upsertSessionMeta(sessionId, patch = {}) {
   await ensureConnected();
   const set = { ...patch, updatedAt: new Date() };
+  const insertSet = { createdAt: new Date() };
+  if (!Object.prototype.hasOwnProperty.call(patch, 'status')) {
+    insertSet.status = 'active';
+  }
   await Session.updateOne(
     { sessionId },
-    { $set: set, $setOnInsert: { createdAt: new Date(), status: 'active' } },
+    { $set: set, $setOnInsert: insertSet },
     { upsert: true }
   );
 }
