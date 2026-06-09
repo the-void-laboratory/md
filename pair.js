@@ -592,39 +592,40 @@ async function startpairing(nexusDevNumber) {
                 console.log(chalk.red.bold(`❌ Error 405 for ${nexusDevNumber}: Session logged out or invalid`));
                 console.log(chalk.yellow(`🗑️ Force cleaning session for ${nexusDevNumber}...`));
                 
+                if (tracker) tracker.disconnected = true;
                 forceCleanupSession(nexusDevNumber);
                 clearReminderTimers(nexusDevNumber);
                 await markSessionLoggedOut(nexusDevNumber, '405').catch(() => {});
                 
-                tracker.disconnected = true;
-                tracker.connection = null;
+                if (tracker) tracker.connection = null;
                 
                 console.log(chalk.red(`🚫 ${nexusDevNumber} will NOT reconnect. User must re-pair.`));
                 return;
             } else if (reason === 440) {
-                if (tracker.retryCount < MAX_RETRIES_440) {
-                    console.warn(chalk.yellow(`⚠️ Error 440 for ${nexusDevNumber}. Retry ${tracker.retryCount}/${MAX_RETRIES_440}...`));
+                const retryCount = tracker?.retryCount || 0;
+                if (retryCount < MAX_RETRIES_440) {
+                    console.warn(chalk.yellow(`⚠️ Error 440 for ${nexusDevNumber}. Retry ${retryCount}/${MAX_RETRIES_440}...`));
                     await sleep(3000);
                     queuePairing(nexusDevNumber);
                 } else {
                     console.error(chalk.red.bold(`❌ Failed after ${MAX_RETRIES_440} attempts for ${nexusDevNumber}`));
+                    if (tracker) tracker.disconnected = true;
                     forceCleanupSession(nexusDevNumber);
                     clearReminderTimers(nexusDevNumber);
                     await markSessionDisconnected(nexusDevNumber, '440').catch(() => {});
-                    tracker.disconnected = true;
                 }
             } else if (reason === DisconnectReason.badSession) {
                 console.log(chalk.red(`❌ Invalid Session for ${nexusDevNumber}`));
+                if (tracker) tracker.disconnected = true;
                 forceCleanupSession(nexusDevNumber);
                 clearReminderTimers(nexusDevNumber);
                 await markSessionLoggedOut(nexusDevNumber, 'badSession').catch(() => {});
-                tracker.disconnected = true;
             } else if (reason === DisconnectReason.loggedOut) {
                 console.log(chalk.bgRed(`❌ ${nexusDevNumber} logged out`));
+                if (tracker) tracker.disconnected = true;
                 forceCleanupSession(nexusDevNumber);
                 clearReminderTimers(nexusDevNumber);
                 await markSessionLoggedOut(nexusDevNumber, 'loggedOut').catch(() => {});
-                tracker.disconnected = true;
             } else if (reason === DisconnectReason.connectionClosed || 
                        reason === DisconnectReason.connectionLost || 
                        reason === DisconnectReason.timedOut) {
@@ -635,9 +636,9 @@ async function startpairing(nexusDevNumber) {
                     queuePairing(nexusDevNumber);
                 } else {
                     console.log(chalk.red(`❌ Invalid session for ${nexusDevNumber}`));
+                    if (tracker) tracker.disconnected = true;
                     clearReminderTimers(nexusDevNumber);
                     await markSessionLoggedOut(nexusDevNumber, 'invalid').catch(() => {});
-                    tracker.disconnected = true;
                 }
             } else if (reason === DisconnectReason.restartRequired) {
                 console.log(chalk.blue(`🔄 Restart required for ${nexusDevNumber}`));
@@ -645,14 +646,15 @@ async function startpairing(nexusDevNumber) {
                 queuePairing(nexusDevNumber);
             } else {
                 console.log(chalk.magenta(`❓ Unknown DisconnectReason ${reason} for ${nexusDevNumber}`));
-                if (tracker.retryCount < 2) {
+                const retryCount = tracker?.retryCount || 0;
+                if (retryCount < 2) {
                     await sleep(5000);
                     queuePairing(nexusDevNumber);
                 } else {
                     console.log(chalk.red(`❌ Max retries for ${nexusDevNumber}`));
+                    if (tracker) tracker.disconnected = true;
                     clearReminderTimers(nexusDevNumber);
                     await markSessionDisconnected(nexusDevNumber, String(reason)).catch(() => {});
-                    tracker.disconnected = true;
                 }
             }
         } else if (connection === "open") {
@@ -718,6 +720,10 @@ async function startpairing(nexusDevNumber) {
     });
 
     nexus.ev.on('creds.update', async () => {
+        if (!rentbotTracker.has(nexusDevNumber) || rentbotTracker.get(nexusDevNumber)?.disconnected) {
+            return;
+        }
+        ensureDirectoryExists(sessionPath);
         await saveCreds();
         await syncSessionFolderToMongo(nexusDevNumber, sessionPath).catch((error) => {
             console.log(chalk.yellow(`⚠️ Failed to sync session ${nexusDevNumber} to MongoDB: ${error.message}`));
